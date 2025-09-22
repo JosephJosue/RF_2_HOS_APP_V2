@@ -3,18 +3,30 @@ import pandas as pd
 from utils import to_zip
 
 def process_data(rf53_df, hos35_df, selected_countries):
+    """
+    Processes the I53 data by finding unique records that exist in both source files.
+    """
+    # 1. Filter by selected countries
     countries_rf53_df = rf53_df[rf53_df["Country"].isin(selected_countries)].copy()
     countries_hos35_df = hos35_df[hos35_df["Country"].isin(selected_countries)].copy()
 
+    # 2. Create lookup key in both DataFrames
     countries_rf53_df["lookup_key"] = countries_rf53_df["Country"].astype(str) + countries_rf53_df["Attribute Value Code"].astype(str)
     countries_hos35_df["lookup_key"] = countries_hos35_df["Country"].astype(str) + countries_hos35_df["Attribute Value Code"].astype(str)
 
+    # 3. Drop duplicates from both source dataframes before merging.
+    countries_rf53_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
+    countries_hos35_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
+    
+    # 4. Perform the merge on the now-unique dataframes.
     final_merge_df = pd.merge(countries_rf53_df, countries_hos35_df[["lookup_key"]], on='lookup_key', how='inner')
     return final_merge_df
 
 def render():
+    """
+    Renders the Streamlit UI for the I53 module.
+    """
     st.header("I53: Validate Records (I53/I35)")
-    st.info("Note: The I53 HOS file is uploaded but not used in the current processing logic, as per the original application design.")
     
     if 'selected_countries' not in st.session_state or not st.session_state['selected_countries']:
         st.warning("Please select countries on the '⚙️ Global Country Selection' page first.")
@@ -23,12 +35,10 @@ def render():
     selected_countries = st.session_state['selected_countries']
     st.info(f"Processing for: **{', '.join(selected_countries)}**")
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         rf53_file = st.file_uploader("Upload I53 RF", type="csv", key="i53_rf")
     with col2:
-        hos53_file = st.file_uploader("Upload I53 HOS (Not Used)", type="csv", key="i53_hos")
-    with col3:
         hos35_file = st.file_uploader("Upload I35 HOS", type="csv", key="i53_hos35")
 
     if rf53_file and hos35_file:
@@ -47,10 +57,16 @@ def render():
         if processed_df.empty:
             st.info("No matching records found.")
         else:
-            st.success(f"Process complete! Found {len(processed_df)} matching records.")
+            st.success(f"Process complete! Found {len(processed_df)} unique matching records.")
+            st.dataframe(processed_df) # Show the result for verification
+            
             files_to_zip = {}
             for country in processed_df['Country'].unique():
-                country_df = processed_df[processed_df['Country'] == country].iloc[:, :-5]
+                country_df = processed_df[processed_df['Country'] == country].copy()
+                # Safely drop the lookup_key before saving
+                country_df.drop(columns=['lookup_key'], inplace=True)
+                # Safely drop the last 4 columns before saving
+                country_df = country_df.iloc[:, :-4]
                 files_to_zip[f"I53_{country}.xlsx"] = country_df
             
             if files_to_zip:

@@ -14,7 +14,9 @@ def render():
     ALL_POSSIBLE_COUNTRIES = sorted([
         "HK", "TW", "NZ", "AU", "BR", "CH", "CN", "IE", "IL", "IN", 
         "JP", "MX", "MY", "PL", "RO", "SA", "SG", "TH", "ZA", "ES", 
-        "PT", "NL", "DK", "BE", "SE", "FI", "NO"
+        "PT", "NL", "DK", "BE", "SE", "FI", "NO", "BD", "CA", "CZ",
+        "FR", "DE", "HU", "GR", "ID", "KE", "QA", "KR", "TR", "GB",
+        "US", "AF36", "SE36", "MY36", "ME36", "KR36"
     ])
 
     # Create the multiselect widget. 

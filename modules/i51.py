@@ -3,15 +3,26 @@ import pandas as pd
 from utils import to_zip
 
 def process_data(rf51_df, hos37_df, selected_countries):
+    """
+    Processes the I51 data by cleaning and then validating unique records against HOS37.
+    """
+    # 1. Filter both dataframes by selected countries
     countries_rf51_df = rf51_df[rf51_df["Country"].isin(selected_countries)].copy()
     countries_hos37_df = hos37_df[hos37_df["Country"].isin(selected_countries)].copy()
 
+    # 2. Remove specified attributes from the RF51 data
     attributes_to_remove = ["HEL_15T_IN", "HEL_30T_IN", "HEL_ING_IN", "EASYSWITCH_IN", "UQCM_IN"]
     i51_cleaned_df = countries_rf51_df[~countries_rf51_df["Attribute Value Code"].isin(attributes_to_remove)].copy()
 
+    # 3. Create a unique lookup key for both dataframes
     i51_cleaned_df["lookup_key"] = i51_cleaned_df["Country"].astype(str) + i51_cleaned_df["Attribute Value Code"].astype(str)
     countries_hos37_df["lookup_key"] = countries_hos37_df["Country"].astype(str) + countries_hos37_df["Attribute Value Code"].astype(str)
     
+    # 4. Drop duplicates from both source dataframes before merging
+    i51_cleaned_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
+    countries_hos37_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
+
+    # 5. Perform the merge on the now-unique dataframes
     final_merge_df = pd.merge(i51_cleaned_df, countries_hos37_df[["lookup_key"]], on='lookup_key', how='inner')
     return final_merge_df
 
@@ -46,10 +57,15 @@ def render():
         if processed_df.empty:
             st.info("No matching records found.")
         else:
-            st.success(f"Process complete! Found {len(processed_df)} matching records.")
+            st.success(f"Process complete! Found {len(processed_df)} unique matching records.")
+            st.dataframe(processed_df)
+
             files_to_zip = {}
             for country in processed_df['Country'].unique():
-                country_df = processed_df[processed_df['Country'] == country].iloc[:, :-5]
+                country_df = processed_df[processed_df['Country'] == country].copy()
+                # Safely drop the lookup key and last 4 columns before saving
+                country_df.drop(columns=['lookup_key'], inplace=True)
+                country_df = country_df.iloc[:, :-4]
                 files_to_zip[f"I51_{country}.xlsx"] = country_df
             
             if files_to_zip:

@@ -3,14 +3,25 @@ import pandas as pd
 from utils import to_zip
 
 def process_data(rf38_df, hos38_df, hos37_df, selected_countries):
+    # 1. Filter by selected countries
     countries_rf38_df = rf38_df[rf38_df["Country"].isin(selected_countries)].copy()
     countries_hos38_df = hos38_df[hos38_df["Country"].isin(selected_countries)].copy()
     countries_hos37_df = hos37_df[hos37_df["Country"].isin(selected_countries)].copy()
 
+    # 2. Create lookup key in all three DataFrames
     for df in [countries_rf38_df, countries_hos38_df, countries_hos37_df]:
         df["lookup_key"] = df["Country"].astype(str) + df["Attribute Value Code"].astype(str)
 
+    # 3. Drop duplicates based on the lookup_key
+    countries_rf38_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
+    countries_hos38_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
+    countries_hos37_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
+
+
+    # 4. Perform the merges
+    # Merge RF38 with HOS38 to find common records
     i38_merge_df = pd.merge(countries_rf38_df, countries_hos38_df[["lookup_key"]], on='lookup_key', how='inner')
+    # Merge the result with HOS37 to find records common to all three
     final_merge_df = pd.merge(i38_merge_df, countries_hos37_df[["lookup_key"]], on='lookup_key', how='inner')
     return final_merge_df
 

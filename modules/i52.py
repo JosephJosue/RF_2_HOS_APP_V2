@@ -3,41 +3,59 @@ import pandas as pd
 from utils import to_zip
 
 def process_data(rf52_df, rf51_df, hos36_df, selected_countries):
+    """
+    Processes the I52 data by transforming, combining, and validating unique records.
+    """
+    # 1. Filter all dataframes by selected countries
     countries_rf52_df = rf52_df[rf52_df["Country"].isin(selected_countries)].copy()
     countries_rf51_df = rf51_df[rf51_df["Country"].isin(selected_countries)].copy()
     countries_hos36_df = hos36_df[hos36_df["Country"].isin(selected_countries)].copy()
 
+    # --- De-duplicate HOS36 (validation file) ---
+    countries_hos36_df["lookup_key"] = countries_hos36_df["Country"].astype(str) + countries_hos36_df["Attribute Value Code"].astype(str)
+    countries_hos36_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
+
+    # --- De-duplicate and transform RF51 data ---
     rf51_os_codes = ["HEL_15T_IN", "HEL_30T_IN", "HEL_ING_IN", "EASYSWITCH_IN", "UQCM_IN"]
     rf51_os_df = countries_rf51_df[countries_rf51_df["Attribute Value Code"].isin(rf51_os_codes)].copy()
+    rf51_os_df["lookup_key"] = rf51_os_df["Country"].astype(str) + rf51_os_df["Attribute Value Code"].astype(str)
+    rf51_os_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
 
     converted_rows = []
+    # Loop through the now unique rf51 data for conversion
     for _, row in rf51_os_df.iterrows():
         converted_rows.append({
             'Display Group Code': 'LI', 'Country': row.get('Country'),
             'Attribute Value Code': row.get('Attribute Value Code'),
             'Attribute Value Description': row.get('Attribute Value Description'),
-            'Attribute Value Price Type': 'Lookup',
-            'Attribute Value FP': row.get('Attribute Value FP'), 'Attribute Value TP': row.get('Attribute Value TP'),
-            'Attribute Value LP': row.get('Attribute Value LP'), 'Attribute Value MMFP': row.get('Attribute Value MMFP'),
-            'Attribute Value MMTP': row.get('Attribute Value MMTP'), 'Attribute Value MMLP': row.get('Attribute Value MMLP'),
-            'Attribute Deactivated YN': row.get('Attribute Deactivated YN'), 'Customer Bank Value': row.get('Customer Bank Value'),
-            'RSM Type': row.get('RSM Type'), 'RSM Consumption': row.get('RSM Consumption'), 'Currency': row.get('Currency'),
-            'Local FP': row.get('Local FP'), 'Price Book Name': row.get('Price Book Name'), 'Server': row.get('Server'),
-            'Changed On': row.get('Changed On'), 'Changed By': row.get('Changed By')
+            'Attribute Value Price Type': 'Lookup', 'Attribute Value FP': row.get('Attribute Value FP'), 
+            'Attribute Value TP': row.get('Attribute Value TP'), 'Attribute Value LP': row.get('Attribute Value LP'), 
+            'Attribute Value MMFP': row.get('Attribute Value MMFP'), 'Attribute Value MMTP': row.get('Attribute Value MMTP'), 
+            'Attribute Value MMLP': row.get('Attribute Value MMLP'), 'Attribute Deactivated YN': row.get('Attribute Deactivated YN'), 
+            'Customer Bank Value': row.get('Customer Bank Value'), 'RSM Type': row.get('RSM Type'), 
+            'RSM Consumption': row.get('RSM Consumption'), 'Currency': row.get('Currency'), 'Local FP': row.get('Local FP'), 
+            'Price Book Name': row.get('Price Book Name'), 'Server': row.get('Server'), 'Changed On': row.get('Changed On'), 
+            'Changed By': row.get('Changed By'), 'lookup_key': row.get('lookup_key')
         })
     converted_df = pd.DataFrame(converted_rows)
 
+    # --- De-duplicate RF52 data ---
+    countries_rf52_df["lookup_key"] = countries_rf52_df["Country"].astype(str) + countries_rf52_df["Attribute Value Code"].astype(str)
+    countries_rf52_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
+
+    # Align columns for concatenation
     if not converted_df.empty:
         for col in countries_rf52_df.columns:
             if col not in converted_df.columns:
                 converted_df[col] = None
         converted_df = converted_df[countries_rf52_df.columns]
 
+    # --- Combine the two unique sources (RF52 and converted RF51) ---
     combined_i52_df = pd.concat([countries_rf52_df, converted_df], ignore_index=True)
-    
-    combined_i52_df["lookup_key"] = combined_i52_df["Country"].astype(str) + combined_i52_df["Attribute Value Code"].astype(str)
-    countries_hos36_df["lookup_key"] = countries_hos36_df["Country"].astype(str) + countries_hos36_df["Attribute Value Code"].astype(str)
+    # Final de-duplication after concat to be safe
+    combined_i52_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
 
+    # --- Final Merge/Validation ---
     final_merge_df = pd.merge(combined_i52_df, countries_hos36_df[["lookup_key"]], on='lookup_key', how='inner')
     return final_merge_df
 
@@ -76,10 +94,15 @@ def render():
         if processed_df.empty:
             st.info("No matching records found.")
         else:
-            st.success(f"Process complete! Found {len(processed_df)} matching records.")
+            st.success(f"Process complete! Found {len(processed_df)} unique matching records.")
+            st.dataframe(processed_df)
+
             files_to_zip = {}
             for country in processed_df['Country'].unique():
-                country_df = processed_df[processed_df['Country'] == country].iloc[:, :-5]
+                country_df = processed_df[processed_df['Country'] == country].copy()
+                # Safely drop the lookup key and last 4 columns before saving
+                country_df.drop(columns=['lookup_key'], inplace=True)
+                country_df = country_df.iloc[:, :-4]
                 files_to_zip[f"I52_{country}.xlsx"] = country_df
             
             if files_to_zip:
