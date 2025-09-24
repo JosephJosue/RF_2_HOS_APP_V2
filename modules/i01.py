@@ -41,12 +41,34 @@ def render():
     if rf01_file and hos01_file:
         if st.button("Process Files", key="i01_process"):
             with st.spinner("Processing..."):
-                rf01_df = pd.read_csv(rf01_file, encoding='latin1')
-                hos01_df = pd.read_csv(hos01_file, encoding='latin1')
-                changed_df, rf_df_filtered = process_data(rf01_df, hos01_df, selected_countries)
-                st.session_state['i01_changed_df'] = changed_df
-                st.session_state['i01_rf_df_filtered'] = rf_df_filtered
-                st.session_state['i01_processed'] = True
+                try:
+                    rf01_df = pd.read_csv(rf01_file, encoding='utf-8-sig', low_memory=False)
+                    hos01_df = pd.read_csv(hos01_file, encoding='utf-8-sig', low_memory=False)
+
+                    required_cols_map = {
+                        "RF01": (rf01_df, ['Country']),
+                        "HOS01": (hos01_df, ['Country'])
+                    }
+
+                    for name, (df, cols) in required_cols_map.items():
+                        df.columns = df.columns.str.strip()
+                        if not all(col in df.columns for col in cols):
+                            st.error(
+                                f"**Error in {name} file!** It's missing one or more essential columns.\n\n"
+                                f"**Required columns:** `{cols}`\n\n"
+                                f"**Actual columns found:** `{df.columns.tolist()}`\n\n"
+                                "Please check the CSV file for extra rows above the header or formatting issues."
+                            )
+                            return
+                    
+                    changed_df, rf_df_filtered = process_data(rf01_df, hos01_df, selected_countries)
+                    st.session_state['i01_changed_df'] = changed_df
+                    st.session_state['i01_rf_df_filtered'] = rf_df_filtered
+                    st.session_state['i01_processed'] = True
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"An unexpected error occurred: {e}")
     
     if st.session_state.get('i01_processed', False):
         changed_df = st.session_state['i01_changed_df']

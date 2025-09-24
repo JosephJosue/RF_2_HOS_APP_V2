@@ -22,7 +22,6 @@ def process_data(rf52_df, rf51_df, hos36_df, selected_countries):
     rf51_os_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
 
     converted_rows = []
-    # Loop through the now unique rf51 data for conversion
     for _, row in rf51_os_df.iterrows():
         converted_rows.append({
             'Display Group Code': 'LI', 'Country': row.get('Country'),
@@ -43,19 +42,15 @@ def process_data(rf52_df, rf51_df, hos36_df, selected_countries):
     countries_rf52_df["lookup_key"] = countries_rf52_df["Country"].astype(str) + countries_rf52_df["Attribute Value Code"].astype(str)
     countries_rf52_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
 
-    # Align columns for concatenation
     if not converted_df.empty:
         for col in countries_rf52_df.columns:
             if col not in converted_df.columns:
                 converted_df[col] = None
         converted_df = converted_df[countries_rf52_df.columns]
 
-    # --- Combine the two unique sources (RF52 and converted RF51) ---
     combined_i52_df = pd.concat([countries_rf52_df, converted_df], ignore_index=True)
-    # Final de-duplication after concat to be safe
     combined_i52_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
 
-    # --- Final Merge/Validation ---
     final_merge_df = pd.merge(combined_i52_df, countries_hos36_df[["lookup_key"]], on='lookup_key', how='inner')
     return final_merge_df
 
@@ -80,13 +75,34 @@ def render():
     if rf52_file and rf51_file and hos36_file:
         if st.button("Process Files", key="i52_process"):
             with st.spinner("Processing..."):
-                rf52_df = pd.read_csv(rf52_file, encoding='latin1')
-                rf51_df = pd.read_csv(rf51_file, encoding='latin1')
-                hos36_df = pd.read_csv(hos36_file, encoding='latin1')
-                
-                processed_df = process_data(rf52_df, rf51_df, hos36_df, selected_countries)
-                st.session_state['i52_processed_df'] = processed_df
-                st.session_state['i52_processed'] = True
+                try:
+                    # **FIX**: Use 'utf-8-sig' encoding to handle potential BOM characters
+                    rf52_df = pd.read_csv(rf52_file, encoding='utf-8-sig', low_memory=False)
+                    rf51_df = pd.read_csv(rf51_file, encoding='utf-8-sig', low_memory=False)
+                    hos36_df = pd.read_csv(hos36_file, encoding='utf-8-sig', low_memory=False)
+                    
+                    # Validate columns with a more robust and informative check
+                    required_cols = ['Country', 'Attribute Value Code']
+                    for name, df in [("I52 RF", rf52_df), ("I51 RF", rf51_df), ("I36 HOS", hos36_df)]:
+                        # Proactively clean column names from whitespace just in case
+                        df.columns = df.columns.str.strip()
+                        if not all(col in df.columns for col in required_cols):
+                            st.error(
+                                f"**Error in {name} file!** It's missing one or more essential columns.\n\n"
+                                f"**Required columns:** `{required_cols}`\n\n"
+                                f"**Actual columns found:** `{df.columns.tolist()}`\n\n"
+                                "This usually happens because of extra rows above the header in the CSV. "
+                                "Please open the file, ensure the first row has the correct headers, save it, and try again."
+                            )
+                            return # Stop execution
+
+                    processed_df = process_data(rf52_df, rf51_df, hos36_df, selected_countries)
+                    st.session_state['i52_processed_df'] = processed_df
+                    st.session_state['i52_processed'] = True
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"An unexpected error occurred: {e}")
 
     if st.session_state.get('i52_processed', False):
         processed_df = st.session_state['i52_processed_df']
@@ -95,13 +111,12 @@ def render():
             st.info("No matching records found.")
         else:
             st.success(f"Process complete! Found {len(processed_df)} unique matching records.")
-            st.dataframe(processed_df)
+            st.dataframe(processed_df.drop(columns=['lookup_key'], errors='ignore'))
 
             files_to_zip = {}
             for country in processed_df['Country'].unique():
                 country_df = processed_df[processed_df['Country'] == country].copy()
-                # Safely drop the lookup key and last 4 columns before saving
-                country_df.drop(columns=['lookup_key'], inplace=True)
+                country_df.drop(columns=['lookup_key'], inplace=True, errors='ignore')
                 country_df = country_df.iloc[:, :-4]
                 files_to_zip[f"I52_{country}.xlsx"] = country_df
             

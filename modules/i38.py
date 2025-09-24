@@ -3,25 +3,15 @@ import pandas as pd
 from utils import to_zip
 
 def process_data(rf38_df, hos38_df, hos37_df, selected_countries):
-    # 1. Filter by selected countries
     countries_rf38_df = rf38_df[rf38_df["Country"].isin(selected_countries)].copy()
     countries_hos38_df = hos38_df[hos38_df["Country"].isin(selected_countries)].copy()
     countries_hos37_df = hos37_df[hos37_df["Country"].isin(selected_countries)].copy()
 
-    # 2. Create lookup key in all three DataFrames
     for df in [countries_rf38_df, countries_hos38_df, countries_hos37_df]:
         df["lookup_key"] = df["Country"].astype(str) + df["Attribute Value Code"].astype(str)
+        df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
 
-    # 3. Drop duplicates based on the lookup_key
-    countries_rf38_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
-    countries_hos38_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
-    countries_hos37_df.drop_duplicates(subset=['lookup_key'], keep='first', inplace=True)
-
-
-    # 4. Perform the merges
-    # Merge RF38 with HOS38 to find common records
     i38_merge_df = pd.merge(countries_rf38_df, countries_hos38_df[["lookup_key"]], on='lookup_key', how='inner')
-    # Merge the result with HOS37 to find records common to all three
     final_merge_df = pd.merge(i38_merge_df, countries_hos37_df[["lookup_key"]], on='lookup_key', how='inner')
     return final_merge_df
 
@@ -46,12 +36,30 @@ def render():
     if rf38_file and hos38_file and hos37_file:
         if st.button("Process Files", key="i38_process"):
             with st.spinner("Processing..."):
-                rf38_df = pd.read_csv(rf38_file, encoding='latin1')
-                hos38_df = pd.read_csv(hos38_file, encoding='latin1')
-                hos37_df = pd.read_csv(hos37_file, encoding='latin1')
-                processed_df = process_data(rf38_df, hos38_df, hos37_df, selected_countries)
-                st.session_state['i38_processed_df'] = processed_df
-                st.session_state['i38_processed'] = True
+                try:
+                    rf38_df = pd.read_csv(rf38_file, encoding='utf-8-sig', low_memory=False)
+                    hos38_df = pd.read_csv(hos38_file, encoding='utf-8-sig', low_memory=False)
+                    hos37_df = pd.read_csv(hos37_file, encoding='utf-8-sig', low_memory=False)
+
+                    required_cols = ['Country', 'Attribute Value Code']
+                    for name, df in [("I38 RF", rf38_df), ("I38 HOS", hos38_df), ("I37 HOS", hos37_df)]:
+                        df.columns = df.columns.str.strip()
+                        if not all(col in df.columns for col in required_cols):
+                            st.error(
+                                f"**Error in {name} file!** It's missing one or more essential columns.\n\n"
+                                f"**Required columns:** `{required_cols}`\n\n"
+                                f"**Actual columns found:** `{df.columns.tolist()}`\n\n"
+                                "Please check the CSV file for extra rows above the header or formatting issues."
+                            )
+                            return
+                    
+                    processed_df = process_data(rf38_df, hos38_df, hos37_df, selected_countries)
+                    st.session_state['i38_processed_df'] = processed_df
+                    st.session_state['i38_processed'] = True
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"An unexpected error occurred: {e}")
     
     if st.session_state.get('i38_processed', False):
         processed_df = st.session_state['i38_processed_df']
@@ -59,10 +67,14 @@ def render():
         if processed_df.empty:
             st.info("No matching records found.")
         else:
-            st.success(f"Process complete! Found {len(processed_df)} matching records.")
+            st.success(f"Process complete! Found {len(processed_df)} unique matching records.")
+            st.dataframe(processed_df.drop(columns=['lookup_key'], errors='ignore'))
+
             files_to_zip = {}
             for country in processed_df['Country'].unique():
-                country_df = processed_df[processed_df['Country'] == country].iloc[:, :-5]
+                country_df = processed_df[processed_df['Country'] == country].copy()
+                country_df.drop(columns=['lookup_key'], inplace=True, errors='ignore')
+                country_df = country_df.iloc[:, :-4]
                 files_to_zip[f"I38_{country}.xlsx"] = country_df
             
             if files_to_zip:
