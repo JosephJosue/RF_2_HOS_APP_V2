@@ -16,7 +16,7 @@ def render():
         "JP", "MX", "MY", "PL", "RO", "SA", "SG", "TH", "ZA", "ES", 
         "PT", "NL", "DK", "BE", "SE", "FI", "NO", "BD", "CA", "CZ",
         "FR", "DE", "HU", "GR", "ID", "KE", "QA", "KR", "TR", "GB",
-        "US", "AF36", "SE36", "MY36", "ME36", "KR36"
+        "US", "AF36", "SE36", "MY36", "ME36", "KR36", "AT"
     ])
 
     # Create the multiselect widget. 
